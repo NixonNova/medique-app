@@ -5,8 +5,8 @@ import { Screen } from '@/components/screen';
 
 const PESAN = [
   'Antrean anda telah berhasil tercatat oleh sistem. Antrian ini belum bisa diverifikasi oleh admin sebelum anda menyelesaikan biaya konsultasi. Silahkan transfer biaya konsultasi sejumlah Rp 50.000,- ke rekening BCA 123 456 7890 sesegera mungkin',
-  'Upload bukti transfer pada data antrian anda. Setelah transfer, unggah bukti transfer pada History Antrian menu di bawah. Unggah pada antrian yang sesuai',
-  'Anda boleh menutup halaman ini dan melihat data antrian melalui History Antrian',
+  'Upload bukti transfer pada data antrian anda. Setelah transfer, unggah bukti transfer pada Histori Antrian menu di bawah. Unggah pada antrian yang sesuai',
+  'Anda boleh menutup halaman ini dan melihat data antrian melalui Histori Antrian',
 ];
 
 export default function KonfirmasiScreen() {

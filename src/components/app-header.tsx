@@ -2,15 +2,24 @@ import { usePathname } from 'expo-router';
 import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { authClient } from '@/lib/auth-client';
 import { useAppState } from '@/state/app-state';
 
 export function AppHeader() {
   const pathname = usePathname();
-  const { loggedIn, email, menuOpen, setMenuOpen, openLogin, logout } = useAppState();
+  const { menuOpen, setMenuOpen, openLogin } = useAppState();
+  const { data: session, isPending } = authClient.useSession();
 
   useEffect(() => {
     setMenuOpen(false);
   }, [pathname, setMenuOpen]);
+
+  const email = !isPending ? (session?.user.email ?? null) : null;
+
+  async function logout() {
+    setMenuOpen(false);
+    await authClient.signOut();
+  }
 
   return (
     <View style={styles.wrap}>
@@ -27,17 +36,19 @@ export function AppHeader() {
           <View style={styles.line} />
         </Pressable>
       </View>
+      {email ? (
+        <Text accessibilityLabel="Email masuk" numberOfLines={1} style={styles.email}>
+          {email}
+        </Text>
+      ) : null}
       {menuOpen ? (
         <View style={styles.menu}>
-          {loggedIn ? (
-            <>
-              <Text style={styles.email}>{email}</Text>
-              <Pressable accessibilityRole="button" onPress={logout} style={styles.menuItem}>
-                <Text style={styles.menuText}>Keluar</Text>
-              </Pressable>
-            </>
+          {isPending ? null : email ? (
+            <Pressable accessibilityRole="button" onPress={() => void logout()} style={styles.menuItem}>
+              <Text style={styles.menuText}>Logout</Text>
+            </Pressable>
           ) : (
-            <Pressable accessibilityRole="button" onPress={() => openLogin()} style={styles.menuItem}>
+            <Pressable accessibilityRole="button" onPress={openLogin} style={styles.menuItem}>
               <Text style={styles.menuText}>Masuk</Text>
             </Pressable>
           )}
@@ -79,9 +90,17 @@ const styles = StyleSheet.create({
     borderRadius: 1,
     backgroundColor: '#1C2430',
   },
+  email: {
+    marginTop: -8,
+    marginBottom: 10,
+    paddingHorizontal: 56,
+    textAlign: 'center',
+    fontSize: 14,
+    color: '#3F4A5A',
+  },
   menu: {
     position: 'absolute',
-    top: 52,
+    top: '100%',
     right: 8,
     minWidth: 200,
     backgroundColor: '#FFFFFF',
@@ -97,14 +116,6 @@ const styles = StyleSheet.create({
   },
   menuText: {
     fontSize: 16,
-    color: '#1C2430',
-  },
-  email: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 4,
-    fontSize: 16,
-    fontWeight: '600',
     color: '#1C2430',
   },
 });
