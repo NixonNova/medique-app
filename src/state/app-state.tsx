@@ -16,9 +16,10 @@ const antrianAwal: Antrian[] = [
 type AppState = {
   menuOpen: boolean;
   loginOpen: boolean;
+  loginEmail: string | null;
   antrian: Antrian[];
   setMenuOpen: (open: boolean) => void;
-  openLogin: () => void;
+  openLogin: (email?: string) => void;
   closeLogin: () => void;
   tambahAntrian: (item?: { tanggal: string; sesi: string }) => void;
   unggahBukti: (id: string, nama: string) => void;
@@ -29,20 +30,25 @@ const AppContext = createContext<AppState | null>(null);
 export function AppProvider({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [loginEmail, setLoginEmail] = useState<string | null>(null);
   const [antrian, setAntrian] = useState<Antrian[]>(antrianAwal);
 
   const value = useMemo<AppState>(
     () => ({
       menuOpen,
       loginOpen,
+      loginEmail,
       antrian,
       setMenuOpen,
-      openLogin: () => {
+      openLogin: (email?: string) => {
+        const address = email?.trim() ?? '';
         setMenuOpen(false);
+        setLoginEmail(address ? address : null);
         setLoginOpen(true);
       },
       closeLogin: () => {
         setLoginOpen(false);
+        setLoginEmail(null);
       },
       tambahAntrian: (item) => {
         setAntrian((current) => [
@@ -60,7 +66,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         );
       },
     }),
-    [antrian, loginOpen, menuOpen],
+    [antrian, loginEmail, loginOpen, menuOpen],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

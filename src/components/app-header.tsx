@@ -48,7 +48,7 @@ export function AppHeader() {
               <Text style={styles.menuText}>Logout</Text>
             </Pressable>
           ) : (
-            <Pressable accessibilityRole="button" onPress={openLogin} style={styles.menuItem}>
+            <Pressable accessibilityRole="button" onPress={() => openLogin()} style={styles.menuItem}>
               <Text style={styles.menuText}>Masuk</Text>
             </Pressable>
           )}

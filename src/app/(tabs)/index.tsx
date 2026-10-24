@@ -11,6 +11,7 @@ import {
 import { Screen } from '@/components/screen';
 import { SlotCalendar } from '@/components/slot-calendar';
 import { TimeSlotList, timeSlotKey } from '@/components/time-slot-list';
+import { authClient } from '@/lib/auth-client';
 import {
   createBooking,
   fetchClinics,
@@ -25,7 +26,9 @@ import { formatTanggal, monthIsoBounds, monthStart, shiftMonth, todayIso } from 
 
 export default function AntriScreen() {
   const router = useRouter();
-  const { tambahAntrian } = useAppState();
+  const { tambahAntrian, openLogin } = useAppState();
+  const { data: session, isPending } = authClient.useSession();
+  const signedInEmail = !isPending && session?.user.email ? session.user.email : null;
   const today = todayIso();
   const requestId = useRef(0);
   const slotRequestId = useRef(0);
@@ -46,6 +49,7 @@ export default function AntriScreen() {
   const [patient, setPatient] = useState<PatientFormValue>(emptyPatientForm);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const patientValue = signedInEmail ? { ...patient, email: signedInEmail } : patient;
 
   const loadSchedule = useCallback((nextClinicId: number, month: Date) => {
     const id = ++requestId.current;
@@ -125,8 +129,8 @@ export default function AntriScreen() {
     : 0;
   const canContinue = selectedDate !== null && selectedDate >= today && availableCount > 0;
   const canPickTime = selectedSlot !== null;
-  const patientMessage = patientFormMessage(patient);
-  const canSave = canPickTime && patientMessage === null && !saving;
+  const patientMessage = patientFormMessage(patientValue);
+  const canSave = signedInEmail !== null && canPickTime && patientMessage === null && !saving;
 
   function chooseClinic(id: number) {
     setStep(1);
@@ -168,7 +172,7 @@ export default function AntriScreen() {
     if (!selectedDate || !selectedSlot || saving) {
       return;
     }
-    const message = patientFormMessage(patient);
+    const message = patientFormMessage(patientValue);
     if (message) {
       setSaveError(message);
       return;
@@ -179,7 +183,7 @@ export default function AntriScreen() {
       await createBooking({
         fullName: patient.namaPasien.trim(),
         contactPhoneNumber: patient.noTelp,
-        email: patient.email.trim(),
+        email: patientValue.email.trim(),
         date: selectedDate,
         start: selectedSlot.start,
         end: selectedSlot.end,
@@ -285,7 +289,12 @@ export default function AntriScreen() {
           <Text style={styles.label}>Jam</Text>
           <Text style={styles.value}>{selectedSlot ? selectedSlot.timeLabel : '—'}</Text>
           <Text style={styles.clinicName}>{selectedClinic?.name}</Text>
-          <PatientDataForm onChange={updatePatient} value={patient} />
+          <PatientDataForm
+            emailReadOnly={signedInEmail !== null}
+            onChange={updatePatient}
+            onGetOtp={() => openLogin(patientValue.email.trim())}
+            value={patientValue}
+          />
         </ScrollView>
       ) : null}
 
@@ -339,7 +348,10 @@ export default function AntriScreen() {
       {step === 3 ? (
         <View style={styles.footer}>
           <Text style={saveError ? styles.error : styles.status}>
-            {saveError ?? patientMessage ?? 'Periksa data pasien, lalu kirim antrian.'}
+            {saveError ??
+              (signedInEmail
+                ? (patientMessage ?? 'Periksa data pasien, lalu kirim antrian.')
+                : 'Masuk dengan OTP untuk mengisi data pasien.')}
           </Text>
           <View style={styles.actions}>
             <Pressable

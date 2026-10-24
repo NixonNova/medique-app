@@ -1,6 +1,6 @@
 export async function sendOtpEmail(email: string, otp: string) {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.EMAIL_FROM;
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  const from = process.env.EMAIL_FROM?.trim();
   if (!apiKey || !from) {
     if (process.env.NODE_ENV === 'production') {
       throw new Error('Email is not configured');
@@ -24,6 +24,8 @@ export async function sendOtpEmail(email: string, otp: string) {
   });
 
   if (!response.ok) {
+    const detail = await response.text();
+    console.error(`[medique] Resend rejected the message (${response.status}): ${detail}`);
     throw new Error('Email gagal dikirim');
   }
 }

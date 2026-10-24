@@ -15,8 +15,8 @@ export function LoginModal() {
 }
 
 function LoginForm() {
-  const { closeLogin } = useAppState();
-  const [email, setEmail] = useState('');
+  const { closeLogin, loginEmail } = useAppState();
+  const [email, setEmail] = useState(loginEmail ?? '');
   const [otp, setOtp] = useState('');
   const [sent, setSent] = useState(false);
   const [pending, setPending] = useState<'send' | 'verify' | null>(null);
