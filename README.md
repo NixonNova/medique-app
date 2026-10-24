@@ -1,6 +1,16 @@
 # Medique
 
-Patient queue app. This version is a UI mockup: any 5-digit OTP signs in, and photo uploads stay on the device.
+Medique is a clinic queue app. A patient picks a clinic, sees which days still have open slots, and takes a time before the schedule fills up.
+
+The rest of the form stays closed until they sign in. A six-digit code is sent to their email, and only then can they enter the patient's name, national ID number, and phone. Someone booking for a family member can add the companion's details too. Each booking is saved on the clinic schedule, and a history screen shows whether the clinic has verified it.
+
+## Stack
+
+- Expo and React Native, with Expo Router
+- TypeScript
+- Better Auth, with email one-time passwords
+- PostgreSQL
+- API routes in the same app for clinics, schedules, bookings, and sign-in
 
 ## Run
 
