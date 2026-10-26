@@ -9,7 +9,7 @@ The rest of the form stays closed until they sign in. Better Auth creates a six-
 - Expo and React Native for iOS and Android, with Expo Router. The same screens also run on the web.
 - TypeScript
 - Better Auth, which creates the six-digit sign-in code
-- OTP.ID, which sends that code to the patient's email
+- OTP.ID, which sends OTP code to the patient via sms/whatsapp
 - PostgreSQL
 - doc.cheap, an OCR API for passport and ID card photos
 - API routes in the same app for clinics, schedules, bookings, and sign-in
