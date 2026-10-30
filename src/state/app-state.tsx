@@ -16,11 +16,14 @@ const antrianAwal: Antrian[] = [
 type AppState = {
   menuOpen: boolean;
   loginOpen: boolean;
-  loginEmail: string | null;
+  loginPhone: string | null;
+  dummyPhone: string | null;
   antrian: Antrian[];
   setMenuOpen: (open: boolean) => void;
-  openLogin: (email?: string) => void;
+  openLogin: (phone?: string) => void;
   closeLogin: () => void;
+  completeDummyLogin: (phone: string) => void;
+  clearDummyLogin: () => void;
   tambahAntrian: (item?: { tanggal: string; sesi: string }) => void;
   unggahBukti: (id: string, nama: string) => void;
 };
@@ -30,25 +33,35 @@ const AppContext = createContext<AppState | null>(null);
 export function AppProvider({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
-  const [loginEmail, setLoginEmail] = useState<string | null>(null);
+  const [loginPhone, setLoginPhone] = useState<string | null>(null);
+  const [dummyPhone, setDummyPhone] = useState<string | null>(null);
   const [antrian, setAntrian] = useState<Antrian[]>(antrianAwal);
 
   const value = useMemo<AppState>(
     () => ({
       menuOpen,
       loginOpen,
-      loginEmail,
+      loginPhone,
+      dummyPhone,
       antrian,
       setMenuOpen,
-      openLogin: (email?: string) => {
-        const address = email?.trim() ?? '';
+      openLogin: (phone?: string) => {
+        const number = phone?.trim() ?? '';
         setMenuOpen(false);
-        setLoginEmail(address ? address : null);
+        setLoginPhone(number ? number : null);
         setLoginOpen(true);
       },
       closeLogin: () => {
         setLoginOpen(false);
-        setLoginEmail(null);
+        setLoginPhone(null);
+      },
+      completeDummyLogin: (phone: string) => {
+        setDummyPhone(phone);
+        setLoginOpen(false);
+        setLoginPhone(null);
+      },
+      clearDummyLogin: () => {
+        setDummyPhone(null);
       },
       tambahAntrian: (item) => {
         setAntrian((current) => [
@@ -66,7 +79,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         );
       },
     }),
-    [antrian, loginEmail, loginOpen, menuOpen],
+    [antrian, dummyPhone, loginPhone, loginOpen, menuOpen],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

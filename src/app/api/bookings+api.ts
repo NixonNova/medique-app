@@ -1,4 +1,5 @@
 import { query } from '@/server/db';
+import { ktpImageBytes, removeBookingKtp, uploadBookingKtp } from '@/server/upload-ktp';
 
 type BookingIdRow = {
   id: number | string;
@@ -9,10 +10,19 @@ type BookingListRow = {
   bookingTime: string;
   bookingSlot: string | null;
   verifiedOn: string | null;
+  unverifiedStatus: string | null;
 };
 
 function isVerified(value: string | null) {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+function statusText(value: string | null) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const status = value.trim();
+  return status.length > 0 ? status : null;
 }
 
 function isIsoDate(value: string) {
@@ -22,10 +32,6 @@ function isIsoDate(value: string) {
   const [year, month, day] = value.split('-').map(Number);
   const date = new Date(year, month - 1, day);
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
-}
-
-function isEmail(value: string) {
-  return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 function isTime(value: string) {
@@ -55,7 +61,8 @@ export async function GET() {
         "ID" AS "id",
         "BookingTime" AS "bookingTime",
         "BookingSlot" AS "bookingSlot",
-        "VerifiedOn" AS "verifiedOn"
+        "VerifiedOn" AS "verifiedOn",
+        "UnverifiedStatus" AS "unverifiedStatus"
       FROM "Booking"
       ORDER BY "ID" DESC
     `);
@@ -66,6 +73,7 @@ export async function GET() {
         bookingTime: row.bookingTime,
         bookingSlot: row.bookingSlot,
         verified: isVerified(row.verifiedOn),
+        unverifiedStatus: statusText(row.unverifiedStatus),
       })),
     });
   } catch (error) {
@@ -85,15 +93,15 @@ export async function POST(request: Request) {
   const payload = body as {
     fullName?: unknown;
     contactPhoneNumber?: unknown;
-    email?: unknown;
     date?: unknown;
     start?: unknown;
     end?: unknown;
+    ktpPasien?: unknown;
+    ktpPengantre?: unknown;
   };
   const fullName = typeof payload.fullName === 'string' ? payload.fullName.trim() : '';
   const contactPhoneNumber =
     typeof payload.contactPhoneNumber === 'string' ? payload.contactPhoneNumber.replace(/\D/g, '') : '';
-  const email = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '';
   const date = typeof payload.date === 'string' ? payload.date : '';
   const start = typeof payload.start === 'string' ? payload.start : '';
   const end = typeof payload.end === 'string' ? payload.end : '';
@@ -103,7 +111,6 @@ export async function POST(request: Request) {
     fullName.length > 200 ||
     contactPhoneNumber.length < 10 ||
     contactPhoneNumber.length > 15 ||
-    !isEmail(email) ||
     !isIsoDate(date) ||
     !isTime(start) ||
     !isTime(end) ||
@@ -112,22 +119,36 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Data pasien tidak lengkap' }, { status: 400 });
   }
 
+  const ktpPasien = ktpImageBytes(payload.ktpPasien);
+  const ktpPengantre = ktpImageBytes(payload.ktpPengantre);
+  if (ktpPasien === undefined || ktpPengantre === undefined) {
+    return Response.json({ error: 'Foto KTP tidak valid' }, { status: 400 });
+  }
+
+  let uploaded: string[] = [];
   try {
+    uploaded = await uploadBookingKtp(contactPhoneNumber, ktpPasien, ktpPengantre);
     const rows = await query<BookingIdRow>(
       `
         INSERT INTO "Booking" ("BookingTime", "FullName", "BookingSlot", "ContactPhoneNumber", "Email")
         VALUES ($1, $2, $3, $4, $5)
         RETURNING "ID" AS id
       `,
-      [toIsoDateTime(new Date()), fullName, `${date} ${start}-${end}`, contactPhoneNumber, email],
+      [toIsoDateTime(new Date()), fullName, `${date} ${start}-${end}`, contactPhoneNumber, ''],
     );
     const id = Number(rows[0]?.id);
     if (!Number.isInteger(id) || id <= 0) {
+      await removeBookingKtp(uploaded).catch((cleanupError) => {
+        console.error(cleanupError);
+      });
       return Response.json({ error: 'Antrian gagal disimpan' }, { status: 500 });
     }
     return Response.json({ id });
   } catch (error) {
     console.error(error);
+    await removeBookingKtp(uploaded).catch((cleanupError) => {
+      console.error(cleanupError);
+    });
     return Response.json({ error: 'Antrian gagal disimpan' }, { status: 500 });
   }
 }

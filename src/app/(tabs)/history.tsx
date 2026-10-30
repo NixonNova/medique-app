@@ -4,11 +4,12 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Screen } from '@/components/screen';
 import { fetchBookings, type BookingRecord } from '@/lib/booking';
-import { formatBookingSlot, formatBookingTime } from '@/lib/tanggal';
+import { formatBookingDate, formatBookingSlot } from '@/lib/tanggal';
 
 export default function HistoryScreen() {
   const [bookings, setBookings] = useState<BookingRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tableWidth, setTableWidth] = useState(0);
   const requestId = useRef(0);
 
   const load = useCallback(() => {
@@ -37,10 +38,14 @@ export default function HistoryScreen() {
 
   useFocusEffect(load);
 
+  const rowWidth = tableWidth > 32 ? tableWidth - 32 : undefined;
+
   return (
     <Screen>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.headerRow}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        onLayout={(event) => setTableWidth(event.nativeEvent.layout.width)}>
+        <View style={[styles.headerRow, rowWidth ? { width: rowWidth } : null]}>
           <Text style={[styles.headerCell, styles.date]}>Tanggal Antri</Text>
           <Text style={[styles.headerCell, styles.session]}>Sesi</Text>
           <Text style={[styles.headerCell, styles.status]}>Status</Text>
@@ -58,11 +63,11 @@ export default function HistoryScreen() {
           <Text style={styles.message}>Belum ada antrian.</Text>
         ) : null}
         {bookings?.map((item) => (
-          <View key={item.id} style={styles.row}>
-            <Text style={[styles.cell, styles.date]}>{formatBookingTime(item.bookingTime)}</Text>
+          <View key={item.id} style={[styles.row, rowWidth ? { width: rowWidth } : null]}>
+            <Text style={[styles.cell, styles.date]}>{formatBookingDate(item.bookingTime)}</Text>
             <Text style={[styles.cell, styles.session]}>{formatBookingSlot(item.bookingSlot)}</Text>
             <View style={styles.status}>
-              <StatusLabel verified={item.verified} />
+              <StatusLabel status={bookingStatus(item)} verified={item.verified} />
             </View>
           </View>
         ))}
@@ -71,24 +76,31 @@ export default function HistoryScreen() {
   );
 }
 
-function StatusLabel({ verified }: { verified: boolean }) {
+function bookingStatus(item: BookingRecord) {
+  if (item.verified) {
+    return 'OK';
+  }
+  return item.unverifiedStatus ?? 'Pending';
+}
+
+function StatusLabel({ status, verified }: { status: string; verified: boolean }) {
   return (
     <View style={[styles.badge, verified ? styles.badgeVerified : styles.badgePending]}>
-      <Text style={[styles.badgeText, verified ? styles.badgeTextVerified : styles.badgeTextPending]}>
-        {verified ? 'Booking terverifikasi' : 'Belum terverifikasi'}
-      </Text>
+      <Text style={[styles.badgeText, verified ? styles.badgeTextVerified : styles.badgeTextPending]}>{status}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   content: {
+    width: '100%',
     paddingHorizontal: 16,
     paddingBottom: 24,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    width: '100%',
     gap: 8,
     paddingVertical: 12,
     borderBottomWidth: 1,
@@ -97,6 +109,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+    width: '100%',
     gap: 8,
     paddingVertical: 12,
     borderBottomWidth: 1,
@@ -113,16 +126,25 @@ const styles = StyleSheet.create({
     color: '#1C2430',
   },
   date: {
-    flex: 1.1,
+    flexGrow: 0.9,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
   },
   session: {
-    flex: 1.2,
+    flexGrow: 1.05,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
   },
   status: {
-    flex: 1.15,
+    flexGrow: 1.35,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
   },
   badge: {
-    alignSelf: 'flex-start',
+    width: '100%',
     borderRadius: 6,
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -134,6 +156,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5F6EA',
   },
   badgeText: {
+    width: '100%',
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '600',

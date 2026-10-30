@@ -1,9 +1,11 @@
 import { expo } from '@better-auth/expo';
 import { betterAuth } from 'better-auth';
-import { emailOTP } from 'better-auth/plugins';
+import { APIError } from 'better-auth/api';
+import { phoneNumber } from 'better-auth/plugins';
 import { Pool } from 'pg';
 
-import { sendOtpEmail } from '@/server/send-otp-email';
+import { isSmsPhone } from '@/lib/phone';
+import { sendOtpWhatsApp } from '@/server/send-otp-whatsapp';
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
@@ -56,16 +58,21 @@ export const auth = betterAuth({
   ],
   plugins: [
     expo(),
-    emailOTP({
+    phoneNumber({
       otpLength: 6,
       expiresIn: 300,
-      storeOTP: 'hashed',
-      disableSignUp: false,
-      async sendVerificationOTP({ email, otp, type }) {
-        if (type !== 'sign-in') {
-          return;
+      phoneNumberValidator: (value) => isSmsPhone(value),
+      signUpOnVerification: {
+        getTempEmail: (value) => `${value.replace(/\D/g, '')}@phone.medique.local`,
+        getTempName: (value) => value,
+      },
+      async sendOTP({ phoneNumber: destination, code }) {
+        try {
+          await sendOtpWhatsApp(destination, code);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'WhatsApp gagal dikirim';
+          throw new APIError('BAD_REQUEST', { message });
         }
-        await sendOtpEmail(email, otp);
       },
     }),
   ],

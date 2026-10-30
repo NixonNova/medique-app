@@ -21,10 +21,9 @@ export default function TabLayout() {
           justifyContent: 'center',
         },
       }}>
-      <Tabs.Screen name="index" options={{ title: 'Antri' }} />
+      <Tabs.Screen name="(antri)" options={{ title: 'Antri' }} />
       <Tabs.Screen name="history" options={{ title: 'Histori Antrian' }} />
       <Tabs.Screen name="ambil" options={{ href: null }} />
-      <Tabs.Screen name="konfirmasi" options={{ href: null }} />
     </Tabs>
   );
 }

@@ -1,29 +1,35 @@
+import { SymbolView } from 'expo-symbols';
+import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { isPhone, phoneText } from '@/lib/phone';
 import { pilihGambar } from '@/lib/pilih-gambar';
+import { scanKtp } from '@/lib/scan-ktp';
 
 export type PatientFormValue = {
   namaPasien: string;
   nikPasien: string;
   noTelp: string;
-  email: string;
   ktpPasien: string | null;
+  ktpPasienBase64: string | null;
   bukanPasien: boolean;
   namaPengantre: string;
   nikPengantre: string;
   ktpPengantre: string | null;
+  ktpPengantreBase64: string | null;
 };
 
 export const emptyPatientForm: PatientFormValue = {
   namaPasien: '',
   nikPasien: '',
   noTelp: '',
-  email: '',
   ktpPasien: null,
+  ktpPasienBase64: null,
   bukanPasien: false,
   namaPengantre: '',
   nikPengantre: '',
   ktpPengantre: null,
+  ktpPengantreBase64: null,
 };
 
 export function patientFormMessage(value: PatientFormValue) {
@@ -33,11 +39,8 @@ export function patientFormMessage(value: PatientFormValue) {
   if (value.nikPasien.length !== 16) {
     return 'NIK pasien harus 16 digit.';
   }
-  if (value.noTelp.length < 10 || value.noTelp.length > 15) {
-    return 'No. Telp. harus 10–15 digit.';
-  }
-  if (!isEmail(value.email.trim())) {
-    return 'Isi email yang valid.';
+  if (!isPhone(value.noTelp)) {
+    return 'No. Telp. harus nomor Indonesia, contoh 081234567890.';
   }
   if (value.bukanPasien) {
     if (!value.namaPengantre.trim()) {
@@ -54,40 +57,142 @@ function digits(value: string, maxLength: number) {
   return value.replace(/\D/g, '').slice(0, maxLength);
 }
 
-function isEmail(value: string) {
-  return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-}
-
 export function PatientDataForm({
   value,
   onChange,
-  emailReadOnly = false,
+  phoneReadOnly = false,
   onGetOtp,
 }: {
   value: PatientFormValue;
   onChange: (patch: Partial<PatientFormValue>) => void;
-  emailReadOnly?: boolean;
+  phoneReadOnly?: boolean;
   onGetOtp?: () => void;
 }) {
-  const canGetOtp = isEmail(value.email.trim());
-  const showGetOtp = Boolean(onGetOtp) && !emailReadOnly;
+  const canGetOtp = isPhone(value.noTelp);
+  const showGetOtp = Boolean(onGetOtp) && !phoneReadOnly;
   const showDetails = !showGetOtp;
+  const scanId = useRef(0);
+  const pengantreScanId = useRef(0);
+  const [scanningKtp, setScanningKtp] = useState(false);
+  const [ktpStatus, setKtpStatus] = useState<string | null>(null);
+  const [ktpVerified, setKtpVerified] = useState(false);
+  const [scanningKtpPengantre, setScanningKtpPengantre] = useState(false);
+  const [ktpPengantreStatus, setKtpPengantreStatus] = useState<string | null>(null);
+  const [ktpPengantreVerified, setKtpPengantreVerified] = useState(false);
+
+  async function unggahKtpPasien() {
+    const gambar = await pilihGambar({ base64: true });
+    if (!gambar) {
+      return;
+    }
+
+    const id = ++scanId.current;
+    onChange({ ktpPasien: gambar.fileName, ktpPasienBase64: gambar.base64 });
+    setKtpVerified(false);
+    if (!gambar.base64) {
+      setKtpStatus('Foto KTP tidak dapat dibaca.');
+      return;
+    }
+
+    setScanningKtp(true);
+    setKtpStatus('Membaca KTP…');
+    try {
+      const hasil = await scanKtp(gambar.base64);
+      if (scanId.current !== id) {
+        return;
+      }
+      onChange({
+        ktpPasien: gambar.fileName,
+        ...(hasil.fullName ? { namaPasien: hasil.fullName } : {}),
+        ...(hasil.documentNumber ? { nikPasien: digits(hasil.documentNumber, 16) } : {}),
+      });
+      const extracted = Boolean(hasil.fullName && hasil.documentNumber);
+      setKtpVerified(extracted);
+      if (!hasil.fullName && !hasil.documentNumber) {
+        setKtpStatus('Nama dan NIK tidak terbaca dari KTP.');
+      } else if (!hasil.fullName) {
+        setKtpStatus('Nama tidak terbaca dari KTP.');
+      } else if (!hasil.documentNumber) {
+        setKtpStatus('NIK tidak terbaca dari KTP.');
+      } else {
+        setKtpStatus(null);
+      }
+    } catch (error) {
+      if (scanId.current !== id) {
+        return;
+      }
+      setKtpVerified(false);
+      setKtpStatus(error instanceof Error ? error.message : 'KTP tidak dapat dibaca.');
+    } finally {
+      if (scanId.current === id) {
+        setScanningKtp(false);
+      }
+    }
+  }
+
+  async function unggahKtpPengantre() {
+    const gambar = await pilihGambar({ base64: true });
+    if (!gambar) {
+      return;
+    }
+
+    const id = ++pengantreScanId.current;
+    onChange({ ktpPengantre: gambar.fileName, ktpPengantreBase64: gambar.base64 });
+    setKtpPengantreVerified(false);
+    if (!gambar.base64) {
+      setKtpPengantreStatus('Foto KTP tidak dapat dibaca.');
+      return;
+    }
+
+    setScanningKtpPengantre(true);
+    setKtpPengantreStatus('Membaca KTP…');
+    try {
+      const hasil = await scanKtp(gambar.base64);
+      if (pengantreScanId.current !== id) {
+        return;
+      }
+      onChange({
+        ktpPengantre: gambar.fileName,
+        ...(hasil.fullName ? { namaPengantre: hasil.fullName } : {}),
+        ...(hasil.documentNumber ? { nikPengantre: digits(hasil.documentNumber, 16) } : {}),
+      });
+      const extracted = Boolean(hasil.fullName && hasil.documentNumber);
+      setKtpPengantreVerified(extracted);
+      if (!hasil.fullName && !hasil.documentNumber) {
+        setKtpPengantreStatus('Nama dan NIK tidak terbaca dari KTP.');
+      } else if (!hasil.fullName) {
+        setKtpPengantreStatus('Nama tidak terbaca dari KTP.');
+      } else if (!hasil.documentNumber) {
+        setKtpPengantreStatus('NIK tidak terbaca dari KTP.');
+      } else {
+        setKtpPengantreStatus(null);
+      }
+    } catch (error) {
+      if (pengantreScanId.current !== id) {
+        return;
+      }
+      setKtpPengantreVerified(false);
+      setKtpPengantreStatus(error instanceof Error ? error.message : 'KTP tidak dapat dibaca.');
+    } finally {
+      if (pengantreScanId.current === id) {
+        setScanningKtpPengantre(false);
+      }
+    }
+  }
 
   return (
     <View style={styles.form}>
       <View style={styles.field}>
-        <Text style={styles.label}>Email</Text>
+        <Text style={styles.label}>No. Telp.</Text>
         <TextInput
-          accessibilityLabel="Email"
-          autoCapitalize="none"
-          autoCorrect={false}
-          editable={!emailReadOnly}
-          keyboardType="email-address"
-          onChangeText={(email) => onChange({ email })}
-          placeholder="siti@email.com"
+          accessibilityLabel="No. Telp."
+          editable={!phoneReadOnly}
+          keyboardType="phone-pad"
+          onChangeText={(noTelp) => onChange({ noTelp: phoneText(noTelp) })}
+          placeholder="081234567890"
           placeholderTextColor="#8B95A5"
-          style={[styles.input, emailReadOnly ? styles.inputReadOnly : null]}
-          value={value.email}
+          style={[styles.input, phoneReadOnly ? styles.inputReadOnly : null]}
+          value={value.noTelp}
         />
         {showGetOtp ? (
           <Pressable
@@ -102,6 +207,15 @@ export function PatientDataForm({
       </View>
       {showDetails ? (
         <>
+          <UploadField
+            busy={scanningKtp}
+            fileName={value.ktpPasien}
+            label="KTP Pasien"
+            onPress={unggahKtpPasien}
+            status={ktpStatus}
+            verified={ktpVerified}
+          />
+
           <Field
             label="Nama lengkap Pasien"
             onChangeText={(namaPasien) => onChange({ namaPasien })}
@@ -115,23 +229,6 @@ export function PatientDataForm({
             placeholder="3174012501900001"
             value={value.nikPasien}
           />
-          <Field
-            keyboardType="phone-pad"
-            label="No. Telp."
-            onChangeText={(noTelp) => onChange({ noTelp: digits(noTelp, 15) })}
-            placeholder="081234567890"
-            value={value.noTelp}
-          />
-          <UploadField
-            fileName={value.ktpPasien}
-            label="KTP Pasien"
-            onPress={async () => {
-              const nama = await pilihGambar();
-              if (nama) {
-                onChange({ ktpPasien: nama });
-              }
-            }}
-          />
           <Pressable
             accessibilityRole="checkbox"
             accessibilityState={{ checked: value.bukanPasien }}
@@ -140,8 +237,18 @@ export function PatientDataForm({
             <View style={[styles.box, value.bukanPasien ? styles.boxOn : null]} />
             <Text style={styles.checkLabel}>Pengantre bukan pasien</Text>
           </Pressable>
+
           {value.bukanPasien ? (
             <>
+              <UploadField
+                busy={scanningKtpPengantre}
+                fileName={value.ktpPengantre}
+                label="KTP pengantre"
+                onPress={unggahKtpPengantre}
+                status={ktpPengantreStatus}
+                verified={ktpPengantreVerified}
+              />
+
               <Field
                 label="Nama lengkap pengantre"
                 onChangeText={(namaPengantre) => onChange({ namaPengantre })}
@@ -155,18 +262,9 @@ export function PatientDataForm({
                 placeholder="3174011201850002"
                 value={value.nikPengantre}
               />
-              <UploadField
-                fileName={value.ktpPengantre}
-                label="KTP pengantre"
-                onPress={async () => {
-                  const nama = await pilihGambar();
-                  if (nama) {
-                    onChange({ ktpPengantre: nama });
-                  }
-                }}
-              />
             </>
           ) : null}
+
         </>
       ) : null}
     </View>
@@ -185,7 +283,7 @@ function Field({
   value: string;
   onChangeText: (value: string) => void;
   placeholder: string;
-  keyboardType?: 'default' | 'number-pad' | 'phone-pad' | 'email-address';
+  keyboardType?: 'default' | 'number-pad' | 'phone-pad';
   autoCapitalize?: 'none' | 'sentences';
 }) {
   return (
@@ -210,18 +308,42 @@ function UploadField({
   label,
   fileName,
   onPress,
+  busy = false,
+  status,
+  verified = false,
 }: {
   label: string;
   fileName: string | null;
   onPress: () => void;
+  busy?: boolean;
+  status?: string | null;
+  verified?: boolean;
 }) {
+  const reading = status === 'Membaca KTP…';
   return (
     <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
-      <Pressable accessibilityLabel={`Unggah ${label}`} accessibilityRole="button" onPress={onPress} style={styles.upload}>
-        <Text style={styles.uploadText}>Unggah</Text>
+      <View style={styles.labelRow}>
+        <Text style={styles.label}>{label}</Text>
+        {verified ? (
+          <SymbolView
+            accessibilityLabel="Data KTP terbaca"
+            name={{ ios: 'checkmark.circle.fill', android: 'check_circle', web: 'check_circle' }}
+            size={18}
+            tintColor="#1E8E3E"
+          />
+        ) : null}
+      </View>
+      <Pressable
+        accessibilityLabel={`Unggah ${label}`}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: busy, busy }}
+        disabled={busy}
+        onPress={onPress}
+        style={[styles.upload, busy ? styles.uploadBusy : null]}>
+        <Text style={styles.uploadText}>{busy ? 'Membaca…' : 'Unggah'}</Text>
       </Pressable>
       {fileName ? <Text style={styles.file}>{fileName}</Text> : null}
+      {status ? <Text style={reading ? styles.file : styles.status}>{status}</Text> : null}
     </View>
   );
 }
@@ -255,6 +377,11 @@ const styles = StyleSheet.create({
   getOtpTextDisabled: {
     color: '#8B95A5',
   },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   label: {
     fontSize: 15,
     color: '#1C2430',
@@ -280,9 +407,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  uploadBusy: {
+    backgroundColor: '#8BA4AE',
+  },
   file: {
     fontSize: 13,
     color: '#3F4A5A',
+  },
+  status: {
+    fontSize: 13,
+    color: '#8A3B2C',
   },
   check: {
     minHeight: 48,

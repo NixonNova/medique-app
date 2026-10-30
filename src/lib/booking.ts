@@ -68,10 +68,11 @@ export async function fetchWorkingDaySummaries(
 export type CreateBookingInput = {
   fullName: string;
   contactPhoneNumber: string;
-  email: string;
   date: string;
   start: string;
   end: string;
+  ktpPasien?: string | null;
+  ktpPengantre?: string | null;
 };
 
 export type BookingRecord = {
@@ -79,6 +80,7 @@ export type BookingRecord = {
   bookingTime: string;
   bookingSlot: string | null;
   verified: boolean;
+  unverifiedStatus: string | null;
 };
 
 export async function fetchBookings(): Promise<BookingRecord[]> {

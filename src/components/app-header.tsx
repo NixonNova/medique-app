@@ -3,21 +3,30 @@ import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { authClient } from '@/lib/auth-client';
+import { isDummyOTPStep } from '@/lib/otp-step';
 import { useAppState } from '@/state/app-state';
 
 export function AppHeader() {
   const pathname = usePathname();
-  const { menuOpen, setMenuOpen, openLogin } = useAppState();
+  const { clearDummyLogin, dummyPhone, menuOpen, setMenuOpen, openLogin } = useAppState();
   const { data: session, isPending } = authClient.useSession();
 
   useEffect(() => {
     setMenuOpen(false);
   }, [pathname, setMenuOpen]);
 
-  const email = !isPending ? (session?.user.email ?? null) : null;
+  const sessionSignedIn = !isPending && Boolean(session?.user);
+  const signedIn = isDummyOTPStep ? Boolean(dummyPhone) : sessionSignedIn;
+  const accountReady = isDummyOTPStep || !isPending;
+  const sessionPhone = sessionSignedIn ? (session?.user.phoneNumber ?? null) : null;
+  const phone = isDummyOTPStep ? dummyPhone : sessionPhone;
 
   async function logout() {
     setMenuOpen(false);
+    if (isDummyOTPStep) {
+      clearDummyLogin();
+      return;
+    }
     await authClient.signOut();
   }
 
@@ -36,22 +45,24 @@ export function AppHeader() {
           <View style={styles.line} />
         </Pressable>
       </View>
-      {email ? (
-        <Text accessibilityLabel="Email masuk" numberOfLines={1} style={styles.email}>
-          {email}
+      {phone ? (
+        <Text accessibilityLabel="Nomor telepon masuk" numberOfLines={1} style={styles.phone}>
+          {phone}
         </Text>
       ) : null}
       {menuOpen ? (
         <View style={styles.menu}>
-          {isPending ? null : email ? (
-            <Pressable accessibilityRole="button" onPress={() => void logout()} style={styles.menuItem}>
-              <Text style={styles.menuText}>Logout</Text>
-            </Pressable>
-          ) : (
-            <Pressable accessibilityRole="button" onPress={() => openLogin()} style={styles.menuItem}>
-              <Text style={styles.menuText}>Masuk</Text>
-            </Pressable>
-          )}
+          {accountReady ? (
+            signedIn ? (
+              <Pressable accessibilityRole="button" onPress={() => void logout()} style={styles.menuItem}>
+                <Text style={styles.menuText}>Logout</Text>
+              </Pressable>
+            ) : (
+              <Pressable accessibilityRole="button" onPress={() => openLogin()} style={styles.menuItem}>
+                <Text style={styles.menuText}>Masuk</Text>
+              </Pressable>
+            )
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -90,7 +101,7 @@ const styles = StyleSheet.create({
     borderRadius: 1,
     backgroundColor: '#1C2430',
   },
-  email: {
+  phone: {
     marginTop: -8,
     marginBottom: 10,
     paddingHorizontal: 56,

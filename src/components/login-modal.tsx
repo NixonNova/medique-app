@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { authClient } from '@/lib/auth-client';
+import { isDummyOTPStep } from '@/lib/otp-step';
+import { authPhone, isPhone, phoneText } from '@/lib/phone';
 import { useAppState } from '@/state/app-state';
 
 export function LoginModal() {
@@ -15,24 +17,31 @@ export function LoginModal() {
 }
 
 function LoginForm() {
-  const { closeLogin, loginEmail } = useAppState();
-  const [email, setEmail] = useState(loginEmail ?? '');
+  const { closeLogin, completeDummyLogin, loginPhone } = useAppState();
+  const [phone, setPhone] = useState(loginPhone ?? '');
   const [otp, setOtp] = useState('');
   const [sent, setSent] = useState(false);
   const [pending, setPending] = useState<'send' | 'verify' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const destination = authPhone(phone);
+
+  function acceptDummyLogin() {
+    completeDummyLogin(phone);
+  }
 
   async function sendCode() {
-    const address = email.trim().toLowerCase();
-    if (!isEmail(address)) {
-      setError('Isi email yang valid.');
+    if (!isPhone(phone)) {
+      setError('Isi nomor Indonesia, contoh 081234567890.');
+      return;
+    }
+    if (isDummyOTPStep) {
+      acceptDummyLogin();
       return;
     }
     setPending('send');
     setError(null);
-    const result = await authClient.emailOtp.sendVerificationOtp({
-      email: address,
-      type: 'sign-in',
+    const result = await authClient.phoneNumber.sendOtp({
+      phoneNumber: destination,
     });
     setPending(null);
     if (result.error) {
@@ -43,9 +52,20 @@ function LoginForm() {
   }
 
   async function submit() {
-    const address = email.trim().toLowerCase();
+    if (isDummyOTPStep) {
+      if (!isPhone(phone)) {
+        setError('Isi nomor Indonesia, contoh 081234567890.');
+        return;
+      }
+      acceptDummyLogin();
+      return;
+    }
     if (!sent) {
       setError('Kirim OTP terlebih dahulu.');
+      return;
+    }
+    if (!isPhone(phone)) {
+      setError('Isi nomor Indonesia, contoh 081234567890.');
       return;
     }
     if (!/^\d{6}$/.test(otp)) {
@@ -54,9 +74,9 @@ function LoginForm() {
     }
     setPending('verify');
     setError(null);
-    const result = await authClient.signIn.emailOtp({
-      email: address,
-      otp,
+    const result = await authClient.phoneNumber.verify({
+      phoneNumber: destination,
+      code: otp,
     });
     setPending(null);
     if (result.error) {
@@ -71,26 +91,26 @@ function LoginForm() {
       <View style={styles.card}>
         <Text style={styles.title}>Masuk dengan OTP</Text>
         <Text style={styles.copy}>
-          {sent ? `Kode OTP telah dikirim ke ${email.trim().toLowerCase()}.` : 'Masukkan email. Kode OTP akan dikirim ke email tersebut.'}
+          {sent
+            ? `Kode OTP telah dikirim melalui WhatsApp ke ${destination}.`
+            : 'Masukkan nomor telepon. Kode OTP akan dikirim melalui WhatsApp.'}
         </Text>
-        <Text style={styles.label}>Email</Text>
+        <Text style={styles.label}>No. Telp.</Text>
         <TextInput
-          accessibilityLabel="Email"
-          autoCapitalize="none"
-          autoComplete="email"
-          autoCorrect={false}
+          accessibilityLabel="No. Telp."
+          autoComplete="tel"
           editable={pending === null}
-          keyboardType="email-address"
+          keyboardType="phone-pad"
           onChangeText={(value) => {
-            setEmail(value);
+            setPhone(phoneText(value));
             setSent(false);
             setOtp('');
             setError(null);
           }}
-          placeholder="siti@email.com"
+          placeholder="081234567890"
           placeholderTextColor="#8B95A5"
           style={styles.input}
-          value={email}
+          value={phone}
         />
         <Pressable
           accessibilityRole="button"
@@ -145,16 +165,15 @@ function LoginForm() {
   );
 }
 
-function isEmail(value: string) {
-  return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-}
-
 function authError(error: { code?: string; message?: string }) {
   if (error.code === 'TOO_MANY_ATTEMPTS' || error.code === 'TOO_MANY_REQUESTS') {
     return 'Terlalu banyak percobaan. Minta kode baru.';
   }
-  if (error.code === 'INVALID_OTP' || error.code === 'OTP_EXPIRED') {
+  if (error.code === 'INVALID_OTP' || error.code === 'OTP_EXPIRED' || error.code === 'OTP_NOT_FOUND') {
     return 'Kode OTP tidak sesuai.';
+  }
+  if (error.code === 'INVALID_PHONE_NUMBER') {
+    return 'Isi nomor Indonesia, contoh 081234567890.';
   }
   return error.message || 'Tidak dapat masuk.';
 }

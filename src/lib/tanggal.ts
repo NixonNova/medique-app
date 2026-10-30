@@ -66,14 +66,13 @@ function formatCalendarDay(year: string, month: string, day: string) {
   return `${Number(day)} ${BULAN[monthIndex]} ${year}`;
 }
 
-/** BookingTime is stored as `YYYY-MM-DDTHH:mm:ss`. */
-export function formatBookingTime(value: string) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(value);
+/** BookingTime is stored as `YYYY-MM-DDTHH:mm:ss`. The queue date omits the clock time. */
+export function formatBookingDate(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
   if (!match) {
     return value;
   }
-  const day = formatCalendarDay(match[1], match[2], match[3]);
-  return day ? `${day}, ${match[4]}.${match[5]}` : value;
+  return formatCalendarDay(match[1], match[2], match[3]) ?? value;
 }
 
 /** BookingSlot is stored as `YYYY-MM-DD HH:mm-HH:mm`. */
