@@ -1,4 +1,4 @@
-import { usePathname } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -8,6 +8,7 @@ import { useAppState } from '@/state/app-state';
 
 export function AppHeader() {
   const pathname = usePathname();
+  const router = useRouter();
   const { clearDummyLogin, dummyPhone, menuOpen, setMenuOpen, openLogin } = useAppState();
   const { data: session, isPending } = authClient.useSession();
 
@@ -20,6 +21,11 @@ export function AppHeader() {
   const accountReady = isDummyOTPStep || !isPending;
   const sessionPhone = sessionSignedIn ? (session?.user.phoneNumber ?? null) : null;
   const phone = isDummyOTPStep ? dummyPhone : sessionPhone;
+
+  function openHistory() {
+    setMenuOpen(false);
+    router.navigate('/history');
+  }
 
   async function logout() {
     setMenuOpen(false);
@@ -54,9 +60,14 @@ export function AppHeader() {
         <View style={styles.menu}>
           {accountReady ? (
             signedIn ? (
-              <Pressable accessibilityRole="button" onPress={() => void logout()} style={styles.menuItem}>
-                <Text style={styles.menuText}>Logout</Text>
-              </Pressable>
+              <>
+                <Pressable accessibilityRole="button" onPress={openHistory} style={styles.menuItem}>
+                  <Text style={styles.menuText}>History Antrian</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" onPress={() => void logout()} style={styles.menuItem}>
+                  <Text style={styles.menuText}>Logout</Text>
+                </Pressable>
+              </>
             ) : (
               <Pressable accessibilityRole="button" onPress={() => openLogin()} style={styles.menuItem}>
                 <Text style={styles.menuText}>Masuk</Text>

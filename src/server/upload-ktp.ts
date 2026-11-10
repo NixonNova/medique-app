@@ -1,9 +1,9 @@
-import { createFolder, del, list, put } from '@vercel/blob';
-
 const MAX_IMAGE_LENGTH = 8_000_000;
+const BLOB_API = 'https://vercel.com/api/blob';
+const BLOB_API_VERSION = '13';
 
 type BlobAuth = {
-  token?: string;
+  token: string;
   storeId: string;
 };
 
@@ -15,31 +15,29 @@ function storeIdFromToken(token: string) {
 function blobAuth(): BlobAuth {
   const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
   const storeId = process.env.BLOB_STORE_ID?.trim().replace(/^store_/, '');
-  // #region agent log
-  fetch('http://127.0.0.1:7547/ingest/8186d3d5-2ed3-41ae-9776-0c107397ca4c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'34efc1'},body:JSON.stringify({sessionId:'34efc1',runId:'pre-fix',hypothesisId:'A-D',location:'upload-ktp.ts:blobAuth',message:'blob credential presence',data:{tokenPresent:Boolean(token),storeIdPresent:Boolean(storeId),tokenLength:token?.length??0,storeIdLength:storeId?.length??0,blobEnvKeys:Object.keys(process.env).filter((key)=>/blob|store/i.test(key))},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
-  const oidcPresent = Boolean(process.env.VERCEL_OIDC_TOKEN?.trim());
-  const mode = token && storeId ? 'read-write' : storeId && oidcPresent ? 'oidc' : 'missing';
-  // #region agent log
-  fetch('http://127.0.0.1:7547/ingest/8186d3d5-2ed3-41ae-9776-0c107397ca4c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'34efc1'},body:JSON.stringify({sessionId:'34efc1',runId:'post-fix',hypothesisId:'E',location:'upload-ktp.ts:blobAuth:mode',message:'blob auth mode',data:{mode,oidcPresent,tokenPresent:Boolean(token),storeIdPresent:Boolean(storeId)},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
-  if (token && storeId) {
-    if (storeIdFromToken(token) !== storeId) {
-      throw new Error('Blob store id does not match the read-write token');
-    }
-    return { token, storeId };
+  if (!token || !storeId) {
+    throw new Error('Blob storage is not configured');
   }
-  if (storeId && oidcPresent) {
-    return { storeId };
+  if (storeIdFromToken(token) !== storeId) {
+    throw new Error('Blob store id does not match the read-write token');
   }
-  throw new Error('Blob storage is not configured');
+  return { token, storeId };
 }
 
-function blobCommand(auth: BlobAuth) {
-  return {
-    storeId: auth.storeId,
-    ...(auth.token ? { token: auth.token } : {}),
-  };
+async function blobRequest(auth: BlobAuth, path: string, init: RequestInit) {
+  const headers = new Headers(init.headers);
+  headers.set('authorization', `Bearer ${auth.token}`);
+  headers.set('x-vercel-blob-store-id', auth.storeId);
+  headers.set('x-api-version', BLOB_API_VERSION);
+  const response = await fetch(`${BLOB_API}${path}`, {
+    ...init,
+    headers,
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) {
+    throw new Error(`Blob request failed (${response.status})`);
+  }
+  return response;
 }
 
 export function ktpStamp(date = new Date()) {
@@ -62,38 +60,23 @@ export function ktpImageBytes(value: unknown) {
   return bytes.length > 0 ? bytes : undefined;
 }
 
-async function phoneFolderExists(phone: string, auth: BlobAuth) {
-  const existing = await list({
-    prefix: `${phone}/`,
-    limit: 1,
-    ...blobCommand(auth),
-  });
-  return existing.blobs.length > 0;
-}
-
-async function ensurePhoneFolder(phone: string, auth: BlobAuth) {
-  if (await phoneFolderExists(phone, auth)) {
-    return;
-  }
-  try {
-    await createFolder(`${phone}/`, {
-      access: 'private',
-      ...(auth.token ? { token: auth.token } : {}),
-    });
-  } catch (error) {
-    if (!(await phoneFolderExists(phone, auth))) {
-      throw error;
-    }
-  }
-}
-
 async function putKtp(phone: string, fileName: string, bytes: Buffer, auth: BlobAuth) {
-  const blob = await put(`${phone}/${fileName}`, new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }), {
-    access: 'private',
-    contentType: 'image/jpeg',
-    ...blobCommand(auth),
+  const pathname = `${phone}/${fileName}`;
+  const params = new URLSearchParams({ pathname });
+  const response = await blobRequest(auth, `/?${params}`, {
+    method: 'PUT',
+    body: new Uint8Array(bytes),
+    headers: {
+      'x-vercel-blob-access': 'private',
+      'x-content-type': 'image/jpeg',
+      'x-add-random-suffix': '0',
+    },
   });
-  return blob.url;
+  const data = (await response.json()) as { url?: string };
+  if (!data.url) {
+    throw new Error('Blob upload did not return a url');
+  }
+  return data.url;
 }
 
 export async function uploadBookingKtp(phone: string, pasien: Buffer | null, pengantre: Buffer | null) {
@@ -101,7 +84,6 @@ export async function uploadBookingKtp(phone: string, pasien: Buffer | null, pen
     return [];
   }
   const auth = blobAuth();
-  await ensurePhoneFolder(phone, auth);
   const stamp = ktpStamp();
   const uploaded: string[] = [];
   try {
@@ -114,7 +96,7 @@ export async function uploadBookingKtp(phone: string, pasien: Buffer | null, pen
     return uploaded;
   } catch (error) {
     if (uploaded.length > 0) {
-      await del(uploaded, blobCommand(auth)).catch((cleanupError) => {
+      await removeBookingKtp(uploaded).catch((cleanupError) => {
         console.error(cleanupError);
       });
     }
@@ -127,5 +109,9 @@ export async function removeBookingKtp(urls: string[]) {
     return;
   }
   const auth = blobAuth();
-  await del(urls, blobCommand(auth));
+  await blobRequest(auth, '/delete', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ urls }),
+  });
 }

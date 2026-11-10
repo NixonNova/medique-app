@@ -3,10 +3,17 @@ import { useCallback, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Screen } from '@/components/screen';
+import { authClient } from '@/lib/auth-client';
 import { fetchBookings, type BookingRecord } from '@/lib/booking';
+import { isDummyOTPStep } from '@/lib/otp-step';
 import { formatBookingDate, formatBookingSlot } from '@/lib/tanggal';
+import { useAppState } from '@/state/app-state';
 
 export default function HistoryScreen() {
+  const { dummyPhone } = useAppState();
+  const { data: session } = authClient.useSession();
+  const sessionPhone = session?.user.phoneNumber ?? null;
+  const phone = isDummyOTPStep ? dummyPhone : sessionPhone;
   const [bookings, setBookings] = useState<BookingRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tableWidth, setTableWidth] = useState(0);
@@ -14,7 +21,7 @@ export default function HistoryScreen() {
 
   const load = useCallback(() => {
     const id = ++requestId.current;
-    fetchBookings()
+    fetchBookings(isDummyOTPStep ? phone : null)
       .then((next) => {
         if (requestId.current !== id) {
           return;
@@ -34,7 +41,7 @@ export default function HistoryScreen() {
         requestId.current += 1;
       }
     };
-  }, []);
+  }, [phone]);
 
   useFocusEffect(load);
 

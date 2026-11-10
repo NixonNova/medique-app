@@ -1,4 +1,7 @@
+import { Platform } from 'react-native';
+
 import { apiUrl } from '@/lib/api-url';
+import { authClient } from '@/lib/auth-client';
 
 export type Clinic = {
   id: number;
@@ -83,8 +86,30 @@ export type BookingRecord = {
   unverifiedStatus: string | null;
 };
 
-export async function fetchBookings(): Promise<BookingRecord[]> {
-  const response = await fetch(apiUrl('/api/bookings'), { cache: 'no-store' });
+async function sessionCookie() {
+  if (Platform.OS === 'web' || !('getCookie' in authClient) || typeof authClient.getCookie !== 'function') {
+    return null;
+  }
+  const cookie = await authClient.getCookie();
+  return cookie || null;
+}
+
+export async function fetchBookings(phone?: string | null): Promise<BookingRecord[]> {
+  const params = new URLSearchParams();
+  if (phone) {
+    params.set('phone', phone);
+  }
+  const query = params.toString();
+  const headers = new Headers();
+  const cookie = await sessionCookie();
+  if (cookie) {
+    headers.set('cookie', cookie);
+  }
+  const response = await fetch(apiUrl(query ? `/api/bookings?${query}` : '/api/bookings'), {
+    cache: 'no-store',
+    credentials: 'include',
+    headers,
+  });
   if (!response.ok) {
     throw new Error(await errorMessage(response, 'Antrian tidak dapat dimuat'));
   }

@@ -1,3 +1,6 @@
+import { isSmsPhone, normalizePhone } from '@/lib/phone';
+import { isDummyOTPStep } from '@/lib/otp-step';
+import { auth } from '@/server/auth';
 import { query } from '@/server/db';
 import { ktpImageBytes, removeBookingKtp, uploadBookingKtp } from '@/server/upload-ktp';
 
@@ -44,6 +47,39 @@ function isTime(value: string) {
   return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
 }
 
+function storedPhoneForms(phone: string) {
+  const normalized = normalizePhone(phone);
+  const local = normalized.startsWith('62') ? `0${normalized.slice(2)}` : normalized;
+  return [normalized, local];
+}
+
+async function requesterPhone(request: Request) {
+  try {
+    const session = await auth.api.getSession({ headers: request.headers });
+    const sessionPhone = session?.user.phoneNumber;
+    if (typeof sessionPhone === 'string' && sessionPhone.trim()) {
+      const phone = normalizePhone(sessionPhone);
+      return isSmsPhone(phone) ? phone : null;
+    }
+  } catch (error) {
+    console.error(error);
+    if (!isDummyOTPStep) {
+      throw error;
+    }
+  }
+
+  if (!isDummyOTPStep) {
+    return null;
+  }
+
+  const requested = new URL(request.url, 'http://localhost').searchParams.get('phone');
+  if (!requested) {
+    return null;
+  }
+  const phone = normalizePhone(requested);
+  return isSmsPhone(phone) ? phone : null;
+}
+
 function toIsoDateTime(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -54,9 +90,16 @@ function toIsoDateTime(date: Date) {
   return `${year}-${month}-${day}T${hour}:${minute}:${second}`;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const rows = await query<BookingListRow>(`
+    const phone = await requesterPhone(request);
+    if (!phone) {
+      return Response.json({ bookings: [] });
+    }
+
+    const [normalized, local] = storedPhoneForms(phone);
+    const rows = await query<BookingListRow>(
+      `
       SELECT
         "ID" AS "id",
         "BookingTime" AS "bookingTime",
@@ -64,8 +107,12 @@ export async function GET() {
         "VerifiedOn" AS "verifiedOn",
         "UnverifiedStatus" AS "unverifiedStatus"
       FROM "Booking"
+      WHERE regexp_replace(COALESCE("ContactPhoneNumber", ''), '[^0-9]', '', 'g') = $1
+         OR regexp_replace(COALESCE("ContactPhoneNumber", ''), '[^0-9]', '', 'g') = $2
       ORDER BY "ID" DESC
-    `);
+    `,
+      [normalized, local],
+    );
 
     return Response.json({
       bookings: rows.map((row) => ({
