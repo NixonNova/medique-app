@@ -1,7 +1,8 @@
 import { SymbolView } from 'expo-symbols';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { fetchKtpHistoryAvailable, fetchLatestKtp } from '@/lib/ktp-history';
 import { isPhone, phoneText } from '@/lib/phone';
 import { pilihGambar } from '@/lib/pilih-gambar';
 import { scanKtp } from '@/lib/scan-ktp';
@@ -79,18 +80,49 @@ export function PatientDataForm({
   const [scanningKtpPengantre, setScanningKtpPengantre] = useState(false);
   const [ktpPengantreStatus, setKtpPengantreStatus] = useState<string | null>(null);
   const [ktpPengantreVerified, setKtpPengantreVerified] = useState(false);
+  const [ktpHistoriPhone, setKtpHistoriPhone] = useState<string | null>(null);
+  const [ktpHistoriAda, setKtpHistoriAda] = useState(false);
+  const ktpHistoriSiap = phoneReadOnly && ktpHistoriPhone === value.noTelp && ktpHistoriAda;
 
-  async function unggahKtpPasien() {
-    const gambar = await pilihGambar({ base64: true });
-    if (!gambar) {
+  useEffect(() => {
+    if (!phoneReadOnly || !isPhone(value.noTelp)) {
       return;
     }
 
-    const id = ++scanId.current;
+    const phone = value.noTelp;
+    let active = true;
+    fetchKtpHistoryAvailable(phone)
+      .then((available) => {
+        if (!active) {
+          return;
+        }
+        setKtpHistoriPhone(phone);
+        setKtpHistoriAda(available);
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+        setKtpHistoriPhone(phone);
+        setKtpHistoriAda(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [phoneReadOnly, value.noTelp]);
+
+  async function bacaKtpPasien(
+    gambar: { fileName: string; base64: string | null },
+    id = ++scanId.current,
+  ) {
     onChange({ ktpPasien: gambar.fileName, ktpPasienBase64: gambar.base64 });
     setKtpVerified(false);
     if (!gambar.base64) {
       setKtpStatus('Foto KTP tidak dapat dibaca.');
+      if (scanId.current === id) {
+        setScanningKtp(false);
+      }
       return;
     }
 
@@ -127,6 +159,35 @@ export function PatientDataForm({
       if (scanId.current === id) {
         setScanningKtp(false);
       }
+    }
+  }
+
+  async function unggahKtpPasien() {
+    const gambar = await pilihGambar({ base64: true });
+    if (!gambar) {
+      return;
+    }
+    await bacaKtpPasien(gambar);
+  }
+
+  async function gunakanKtpHistori() {
+    const id = ++scanId.current;
+    setScanningKtp(true);
+    setKtpVerified(false);
+    setKtpStatus('Mengambil KTP histori…');
+    try {
+      const gambar = await fetchLatestKtp(value.noTelp);
+      if (scanId.current !== id) {
+        return;
+      }
+      await bacaKtpPasien(gambar, id);
+    } catch (error) {
+      if (scanId.current !== id) {
+        return;
+      }
+      setKtpVerified(false);
+      setKtpStatus(error instanceof Error ? error.message : 'KTP histori tidak dapat diambil.');
+      setScanningKtp(false);
     }
   }
 
@@ -208,9 +269,12 @@ export function PatientDataForm({
       {showDetails ? (
         <>
           <UploadField
+            actionLabel="Unggah Baru"
             busy={scanningKtp}
             fileName={value.ktpPasien}
+            historyAvailable={ktpHistoriSiap}
             label="KTP Pasien"
+            onHistory={gunakanKtpHistori}
             onPress={unggahKtpPasien}
             status={ktpStatus}
             verified={ktpVerified}
@@ -308,6 +372,9 @@ function UploadField({
   label,
   fileName,
   onPress,
+  onHistory,
+  historyAvailable = false,
+  actionLabel = 'Unggah Baru',
   busy = false,
   status,
   verified = false,
@@ -315,11 +382,14 @@ function UploadField({
   label: string;
   fileName: string | null;
   onPress: () => void;
+  onHistory?: () => void;
+  historyAvailable?: boolean;
+  actionLabel?: string;
   busy?: boolean;
   status?: string | null;
   verified?: boolean;
 }) {
-  const reading = status === 'Membaca KTP…';
+  const reading = status === 'Membaca KTP…' || status === 'Mengambil KTP histori…';
   return (
     <View style={styles.field}>
       <View style={styles.labelRow}>
@@ -333,14 +403,25 @@ function UploadField({
           />
         ) : null}
       </View>
+      {historyAvailable && onHistory ? (
+        <Pressable
+          accessibilityLabel="Gunakan KTP histori"
+          accessibilityRole="button"
+          accessibilityState={{ disabled: busy, busy }}
+          disabled={busy}
+          onPress={onHistory}
+          style={[styles.upload, busy ? styles.uploadBusy : null]}>
+          <Text style={styles.uploadText}>{busy ? 'Membaca…' : 'Gunakan KTP histori'}</Text>
+        </Pressable>
+      ) : null}
       <Pressable
-        accessibilityLabel={`Unggah ${label}`}
+        accessibilityLabel={`${actionLabel} ${label}`}
         accessibilityRole="button"
         accessibilityState={{ disabled: busy, busy }}
         disabled={busy}
         onPress={onPress}
         style={[styles.upload, busy ? styles.uploadBusy : null]}>
-        <Text style={styles.uploadText}>{busy ? 'Membaca…' : 'Unggah'}</Text>
+        <Text style={styles.uploadText}>{busy ? 'Membaca…' : actionLabel}</Text>
       </Pressable>
       {fileName ? <Text style={styles.file}>{fileName}</Text> : null}
       {status ? <Text style={reading ? styles.file : styles.status}>{status}</Text> : null}

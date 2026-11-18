@@ -190,6 +190,8 @@ export default function AntriScreen() {
         end: selectedSlot.end,
         ktpPasien: patientValue.ktpPasienBase64,
         ktpPengantre: patientValue.bukanPasien ? patientValue.ktpPengantreBase64 : null,
+        nikPasien: patientValue.nikPasien,
+        nikPengantre: patientValue.bukanPasien ? patientValue.nikPengantre : null,
       });
       tambahAntrian({
         tanggal: formatTanggal(selectedDate),

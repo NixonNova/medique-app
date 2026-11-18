@@ -76,6 +76,8 @@ export type CreateBookingInput = {
   end: string;
   ktpPasien?: string | null;
   ktpPengantre?: string | null;
+  nikPasien?: string | null;
+  nikPengantre?: string | null;
 };
 
 export type BookingRecord = {

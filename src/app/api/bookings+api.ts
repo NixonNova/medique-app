@@ -2,7 +2,7 @@ import { isSmsPhone, normalizePhone } from '@/lib/phone';
 import { isDummyOTPStep } from '@/lib/otp-step';
 import { auth } from '@/server/auth';
 import { query } from '@/server/db';
-import { ktpImageBytes, removeBookingKtp, uploadBookingKtp } from '@/server/upload-ktp';
+import { ktpImageBytes, uploadBookingKtp, type KtpFile } from '@/server/upload-ktp';
 
 type BookingIdRow = {
   id: number | string;
@@ -35,6 +35,14 @@ function isIsoDate(value: string) {
   const [year, month, day] = value.split('-').map(Number);
   const date = new Date(year, month - 1, day);
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
+
+function nikDigits(value: unknown) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const nik = value.replace(/\D/g, '');
+  return /^\d{16}$/.test(nik) ? nik : null;
 }
 
 function isTime(value: string) {
@@ -145,6 +153,8 @@ export async function POST(request: Request) {
     end?: unknown;
     ktpPasien?: unknown;
     ktpPengantre?: unknown;
+    nikPasien?: unknown;
+    nikPengantre?: unknown;
   };
   const fullName = typeof payload.fullName === 'string' ? payload.fullName.trim() : '';
   const contactPhoneNumber =
@@ -172,9 +182,24 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Foto KTP tidak valid' }, { status: 400 });
   }
 
-  let uploaded: string[] = [];
+  const files: KtpFile[] = [];
+  if (ktpPasien) {
+    const nik = nikDigits(payload.nikPasien);
+    if (!nik) {
+      return Response.json({ error: 'NIK pasien tidak valid' }, { status: 400 });
+    }
+    files.push({ nik, bytes: ktpPasien });
+  }
+  if (ktpPengantre) {
+    const nik = nikDigits(payload.nikPengantre);
+    if (!nik) {
+      return Response.json({ error: 'NIK pengantre tidak valid' }, { status: 400 });
+    }
+    files.push({ nik, bytes: ktpPengantre });
+  }
+
+  let id: number | null = null;
   try {
-    uploaded = await uploadBookingKtp(contactPhoneNumber, ktpPasien, ktpPengantre);
     const rows = await query<BookingIdRow>(
       `
         INSERT INTO "Booking" ("BookingTime", "FullName", "BookingSlot", "ContactPhoneNumber", "Email")
@@ -183,19 +208,19 @@ export async function POST(request: Request) {
       `,
       [toIsoDateTime(new Date()), fullName, `${date} ${start}-${end}`, contactPhoneNumber, ''],
     );
-    const id = Number(rows[0]?.id);
+    id = Number(rows[0]?.id);
     if (!Number.isInteger(id) || id <= 0) {
-      await removeBookingKtp(uploaded).catch((cleanupError) => {
-        console.error(cleanupError);
-      });
       return Response.json({ error: 'Antrian gagal disimpan' }, { status: 500 });
     }
+    await uploadBookingKtp(contactPhoneNumber, files);
     return Response.json({ id });
   } catch (error) {
     console.error(error);
-    await removeBookingKtp(uploaded).catch((cleanupError) => {
-      console.error(cleanupError);
-    });
+    if (id) {
+      await query<Record<string, unknown>>(`DELETE FROM "Booking" WHERE "ID" = $1`, [id]).catch((cleanupError) => {
+        console.error(cleanupError);
+      });
+    }
     return Response.json({ error: 'Antrian gagal disimpan' }, { status: 500 });
   }
 }

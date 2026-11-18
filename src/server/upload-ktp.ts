@@ -1,48 +1,46 @@
-const MAX_IMAGE_LENGTH = 8_000_000;
-const BLOB_API = 'https://vercel.com/api/blob';
-const BLOB_API_VERSION = '13';
+import { get, list, put } from '@tigrisdata/storage';
 
-type BlobAuth = {
-  token: string;
-  storeId: string;
+import { isSmsPhone, normalizePhone } from '@/lib/phone';
+
+const MAX_IMAGE_LENGTH = 8_000_000;
+const S3_ENDPOINT = 'https://t3.storage.dev';
+const IAM_ENDPOINT = 'https://iam.storage.dev';
+
+export type KtpFile = {
+  nik: string;
+  bytes: Buffer;
 };
 
-function storeIdFromToken(token: string) {
-  const [, , , storeId = ''] = token.split('_');
-  return storeId;
+function tigrisConfig() {
+  const accessKeyId = process.env.TIGRIS_STORAGE_ACCESS_KEY_ID?.trim();
+  const secretAccessKey = process.env.TIGRIS_STORAGE_SECRET_ACCESS_KEY?.trim();
+  const bucket = process.env.TIGRIS_STORAGE_BUCKET?.trim();
+  if (!accessKeyId || !secretAccessKey || !bucket) {
+    throw new Error('Tigris storage is not configured');
+  }
+  return {
+    accessKeyId,
+    secretAccessKey,
+    bucket,
+    endpoint: process.env.TIGRIS_STORAGE_ENDPOINT?.trim() || S3_ENDPOINT,
+    iamEndpoint: process.env.TIGRIS_STORAGE_IAM_ENDPOINT?.trim() || IAM_ENDPOINT,
+  };
 }
 
-function blobAuth(): BlobAuth {
-  const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
-  const storeId = process.env.BLOB_STORE_ID?.trim().replace(/^store_/, '');
-  if (!token || !storeId) {
-    throw new Error('Blob storage is not configured');
+function ktpContentType(bytes: Buffer) {
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return 'image/png';
   }
-  if (storeIdFromToken(token) !== storeId) {
-    throw new Error('Blob store id does not match the read-write token');
-  }
-  return { token, storeId };
+  return 'image/jpeg';
 }
 
-async function blobRequest(auth: BlobAuth, path: string, init: RequestInit) {
-  const headers = new Headers(init.headers);
-  headers.set('authorization', `Bearer ${auth.token}`);
-  headers.set('x-vercel-blob-store-id', auth.storeId);
-  headers.set('x-api-version', BLOB_API_VERSION);
-  const response = await fetch(`${BLOB_API}${path}`, {
-    ...init,
-    headers,
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!response.ok) {
-    throw new Error(`Blob request failed (${response.status})`);
+export function ktpObjectPath(phone: string, nik: string) {
+  const folder = phone.replace(/\D/g, '');
+  const fileName = nik.replace(/\D/g, '');
+  if (!folder || !/^\d{16}$/.test(fileName)) {
+    throw new Error('Foto KTP tidak valid');
   }
-  return response;
-}
-
-export function ktpStamp(date = new Date()) {
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+  return `${folder}/${fileName}.jpg`;
 }
 
 export function ktpImageBytes(value: unknown) {
@@ -60,58 +58,148 @@ export function ktpImageBytes(value: unknown) {
   return bytes.length > 0 ? bytes : undefined;
 }
 
-async function putKtp(phone: string, fileName: string, bytes: Buffer, auth: BlobAuth) {
-  const pathname = `${phone}/${fileName}`;
-  const params = new URLSearchParams({ pathname });
-  const response = await blobRequest(auth, `/?${params}`, {
-    method: 'PUT',
-    body: new Uint8Array(bytes),
-    headers: {
-      'x-vercel-blob-access': 'private',
-      'x-content-type': 'image/jpeg',
-      'x-add-random-suffix': '0',
-    },
-  });
-  const data = (await response.json()) as { url?: string };
-  if (!data.url) {
-    throw new Error('Blob upload did not return a url');
-  }
-  return data.url;
-}
+const MAX_IMAGE_BYTES = 6_000_000;
 
-export async function uploadBookingKtp(phone: string, pasien: Buffer | null, pengantre: Buffer | null) {
-  if (!pasien && !pengantre) {
+function ktpPhoneFolders(phone: string) {
+  const digits = phone.replace(/\D/g, '');
+  const normalized = normalizePhone(digits);
+  if (!isSmsPhone(normalized)) {
     return [];
   }
-  const auth = blobAuth();
-  const stamp = ktpStamp();
-  const uploaded: string[] = [];
-  try {
-    if (pasien) {
-      uploaded.push(await putKtp(phone, `${stamp}.jpg`, pasien, auth));
-    }
-    if (pengantre) {
-      uploaded.push(await putKtp(phone, `${stamp}-pengantre.jpg`, pengantre, auth));
-    }
-    return uploaded;
-  } catch (error) {
-    if (uploaded.length > 0) {
-      await removeBookingKtp(uploaded).catch((cleanupError) => {
-        console.error(cleanupError);
-      });
-    }
-    throw error;
-  }
+  const local = `0${normalized.slice(2)}`;
+  return [...new Set([digits, normalized, local].filter((folder) => folder.length > 0))];
 }
 
-export async function removeBookingKtp(urls: string[]) {
-  if (urls.length === 0) {
+type StoredKtp = {
+  path: string;
+  fileName: string;
+  modifiedAt: number;
+};
+
+async function listFolder(folder: string, config: ReturnType<typeof tigrisConfig>) {
+  const items: StoredKtp[] = [];
+  const seen = new Set<string>();
+  let paginationToken: string | undefined;
+
+  do {
+    const page = await list({
+      prefix: `${folder}/`,
+      limit: 100,
+      paginationToken,
+      config,
+    });
+    if (page.error) {
+      throw page.error;
+    }
+
+    for (const item of page.data?.items ?? []) {
+      if (!item.name.startsWith(`${folder}/`) || item.name.endsWith('/') || item.size <= 0) {
+        continue;
+      }
+      const fileName = item.name.slice(folder.length + 1);
+      if (!fileName || fileName.includes('/') || fileName.includes('..')) {
+        continue;
+      }
+      const modifiedAt = item.lastModified instanceof Date ? item.lastModified.getTime() : 0;
+      items.push({
+        path: item.name,
+        fileName,
+        modifiedAt: Number.isFinite(modifiedAt) ? modifiedAt : 0,
+      });
+    }
+
+    const next = page.data?.hasMore ? page.data.paginationToken : undefined;
+    if (!next || seen.has(next) || seen.size >= 20) {
+      break;
+    }
+    seen.add(next);
+    paginationToken = next;
+  } while (paginationToken);
+
+  return items;
+}
+
+export async function latestKtpObject(phone: string) {
+  const folders = ktpPhoneFolders(phone);
+  if (folders.length === 0) {
+    return null;
+  }
+
+  const config = tigrisConfig();
+  const found = (await Promise.all(folders.map((folder) => listFolder(folder, config)))).flat();
+  found.sort((left, right) => right.modifiedAt - left.modifiedAt || right.path.localeCompare(left.path));
+  return found[0] ?? null;
+}
+
+async function bytesFromStream(stream: ReadableStream<Uint8Array>) {
+  const reader = stream.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  let locked = true;
+  try {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) {
+        break;
+      }
+      const chunk = Buffer.from(next.value);
+      total += chunk.length;
+      if (total > MAX_IMAGE_BYTES) {
+        await reader.cancel();
+        locked = false;
+        throw new Error('Foto KTP terlalu besar.');
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    if (locked) {
+      reader.releaseLock();
+    }
+  }
+  return Buffer.concat(chunks);
+}
+
+export async function downloadLatestKtp(phone: string) {
+  const latest = await latestKtpObject(phone);
+  if (!latest) {
+    return null;
+  }
+
+  const folders = ktpPhoneFolders(phone);
+  if (!folders.some((folder) => latest.path.startsWith(`${folder}/`))) {
+    throw new Error('Foto KTP tidak valid');
+  }
+
+  const result = await get(latest.path, 'stream', { config: tigrisConfig() });
+  if (result.error || !result.data) {
+    throw result.error ?? new Error('KTP histori tidak dapat diambil.');
+  }
+
+  const bytes = await bytesFromStream(result.data);
+  if (bytes.length === 0) {
+    return null;
+  }
+  const base64 = bytes.toString('base64');
+  if (base64.length > MAX_IMAGE_LENGTH) {
+    throw new Error('Foto KTP terlalu besar.');
+  }
+  return { fileName: latest.fileName, base64 };
+}
+
+export async function uploadBookingKtp(phone: string, files: KtpFile[]) {
+  if (files.length === 0) {
     return;
   }
-  const auth = blobAuth();
-  await blobRequest(auth, '/delete', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ urls }),
-  });
+  const config = tigrisConfig();
+  for (const file of files) {
+    const result = await put(ktpObjectPath(phone, file.nik), file.bytes, {
+      access: 'private',
+      allowOverwrite: true,
+      contentType: ktpContentType(file.bytes),
+      config,
+    });
+    if (result.error) {
+      throw result.error;
+    }
+  }
 }

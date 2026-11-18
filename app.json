@@ -8,7 +8,11 @@
     "scheme": "mediqueapp",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "bundleIdentifier": "com.medique.app",
+      "icon": "./assets/expo.icon",
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.medique.app",
@@ -18,10 +22,7 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false,
-      "permissions": [
-        "android.permission.RECORD_AUDIO"
-      ]
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
@@ -38,7 +39,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Medique menggunakan foto untuk KTP dan bukti transfer."
+          "photosPermission": "Medique menggunakan foto untuk KTP dan bukti transfer.",
+          "cameraPermission": false,
+          "microphonePermission": false
         }
       ],
       [

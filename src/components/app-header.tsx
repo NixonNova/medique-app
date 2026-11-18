@@ -22,6 +22,11 @@ export function AppHeader() {
   const sessionPhone = sessionSignedIn ? (session?.user.phoneNumber ?? null) : null;
   const phone = isDummyOTPStep ? dummyPhone : sessionPhone;
 
+  function openAntri() {
+    setMenuOpen(false);
+    router.navigate('/');
+  }
+
   function openHistory() {
     setMenuOpen(false);
     router.navigate('/history');
@@ -58,6 +63,9 @@ export function AppHeader() {
       ) : null}
       {menuOpen ? (
         <View style={styles.menu}>
+          <Pressable accessibilityRole="button" onPress={openAntri} style={styles.menuItem}>
+            <Text style={styles.menuText}>Antri</Text>
+          </Pressable>
           {accountReady ? (
             signedIn ? (
               <>
